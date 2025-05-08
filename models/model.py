@@ -8,10 +8,32 @@ from models.MLNet import MLNet
 import torch.nn.functional as F
 from torchvision.models import resnet50
 from models.nonLocal import NONLocalBlock2D
+from models.NonLocalCross import BiNonLocalBlock2D
 from models.models import ConvNextModel, ResNetModel, VGGModel, MobileNetV2, DenseModel
 from models.MobileViT import mobile_vit_small
+# from models.swin_transfomer_v2 import SwinTransformerV2
 import cv2
 from torch import Tensor
+from models.swinv2_regression import SwinV2Regression
+
+def build_swinv2_model(config):
+    model = SwinTransformerV2(img_size=config.DATA.IMG_SIZE,
+                            patch_size=config.MODEL.SWINV2.PATCH_SIZE,
+                            in_chans=config.MODEL.SWINV2.IN_CHANS,
+                            num_classes=config.MODEL.NUM_CLASSES,
+                            embed_dim=config.MODEL.SWINV2.EMBED_DIM,
+                            depths=config.MODEL.SWINV2.DEPTHS,
+                            num_heads=config.MODEL.SWINV2.NUM_HEADS,
+                            window_size=config.MODEL.SWINV2.WINDOW_SIZE,
+                            mlp_ratio=config.MODEL.SWINV2.MLP_RATIO,
+                            qkv_bias=config.MODEL.SWINV2.QKV_BIAS,
+                            drop_rate=config.MODEL.DROP_RATE,
+                            drop_path_rate=config.MODEL.DROP_PATH_RATE,
+                            ape=config.MODEL.SWINV2.APE,
+                            patch_norm=config.MODEL.SWINV2.PATCH_NORM,
+                            use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+                            pretrained_window_sizes=config.MODEL.SWINV2.PRETRAINED_WINDOW_SIZES)
+    return model
 
 
 class BasicBlock(nn.Module):
@@ -134,6 +156,96 @@ class ResidualBlock(nn.Module):
         # Activation function after adding the shortcut
         return self.act2(x + shortcut)
 
+class ResidualBlock(nn.Module):
+    """
+    <a id="residual_block"></a>
+    ## Residual Block
+    This implements the residual block described in the paper.
+    It has two $3 \times 3$ convolution layers.
+    ![Residual Block](residual_block.svg)
+    The first convolution layer maps from `in_channels` to `out_channels`,
+    where the `out_channels` is higher than `in_channels` when we reduce the
+    feature map size with a stride length greater than $1$.
+    The second convolution layer maps from `out_channels` to `out_channels` and
+    always has a stride length of 1.
+    Both convolution layers are followed by batch normalization.
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, stride: int):
+        """
+        * `in_channels` is the number of channels in $x$
+        * `out_channels` is the number of output channels
+        * `stride` is the stride length in the convolution operation.
+        """
+        super().__init__()
+
+        # First $3 \times 3$ convolution layer, this maps to `out_channels`
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1)
+        # Batch normalization after the first convolution
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        # First activation function (ReLU)
+        self.act1 = nn.ReLU()
+
+        # Second $3 \times 3$ convolution layer
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        # Batch normalization after the second convolution
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # Shortcut connection should be a projection if the stride length is not $1$
+        # of if the number of channels change
+        if stride != 1 or in_channels != out_channels:
+            # Projection $W_s x$
+            self.shortcut = ShortcutProjection(in_channels, out_channels, stride)
+        else:
+            # Identity $x$
+            self.shortcut = nn.Identity()
+
+        # Second activation function (ReLU) (after adding the shortcut)
+        self.act2 = nn.ReLU()
+
+    def forward(self, x: torch.Tensor):
+        """
+        * `x` is the input of shape `[batch_size, in_channels, height, width]`
+        """
+        # Get the shortcut connection
+        shortcut = self.shortcut(x)
+        # First convolution and activation
+        x = self.act1(self.bn1(self.conv1(x)))
+        # Second convolution
+        x = self.bn2(self.conv2(x))
+        # Activation function after adding the shortcut
+        return self.act2(x + shortcut)
+
+
+# class UncertaintyBlock(nn.Module):
+#     def __init__(self, img_input, p_input, n):
+#         super(UncertaintyBlock, self).__init__()
+#         self.rs1 = ResidualBlock(img_input, p_input, 1)
+#         list_block = []
+#         for i in range(n):
+#             list_block.append(ResidualBlock(p_input, p_input, 1))
+#         self.rs2 = nn.ModuleList(list_block)
+#         # 内容应该不同
+#         # self.rs3 = ResidualBlock(p_input * (n + 1), p_input, 1)
+#         self.nlb = NONLocalBlock2D(p_input * (n + 1))
+#         # self.seb = BasicBlock(p_input * (n + 1), p_input)
+#         list_block = []
+#         for i in range(n):
+#             list_block.append(ResidualBlock(p_input * (n + 2), p_input, 1))
+#         self.rs4 = nn.ModuleList(list_block)
+
+#     def forward(self, x, p):
+#         x = self.rs1(x)
+#         for index, m in enumerate(self.rs2):
+#             p[index] = m(p[index])
+#         c = x
+#         c = torch.concat([c, *p], dim=1)
+#         c = self.nlb(c)
+#         p = [torch.concat([ps, c], dim=1) for ps in p]
+#         for index, m in enumerate(self.rs4):
+#             p[index] = m(p[index])
+#         return p
+
 
 class UncertaintyBlock(nn.Module):
     def __init__(self, img_input, p_input, n):
@@ -143,34 +255,36 @@ class UncertaintyBlock(nn.Module):
         for i in range(n):
             list_block.append(ResidualBlock(p_input, p_input, 1))
         self.rs2 = nn.ModuleList(list_block)
-        # 内容应该不同
-        # self.rs3 = ResidualBlock(p_input * (n + 1), p_input, 1)
-        self.nlb = NONLocalBlock2D(p_input * (n + 1))
-        # self.seb = BasicBlock(p_input * (n + 1), p_input)
+        
+        self.bi_nlb = BiNonLocalBlock2D(p_input)
+        self.rs_compress = ResidualBlock(p_input*n, p_input, 1)
         list_block = []
+
         for i in range(n):
-            list_block.append(ResidualBlock(p_input * (n + 2), p_input, 1))
+            list_block.append(ResidualBlock(p_input * 3, p_input, 1))
+      
         self.rs4 = nn.ModuleList(list_block)
 
     def forward(self, x, p):
         x = self.rs1(x)
         for index, m in enumerate(self.rs2):
             p[index] = m(p[index])
-        c = x
-        c = torch.concat([c, *p], dim=1)
-        # c = self.nlb(c)
-        # c = self.seb(c)
-        # c = self.rs3(c)
-        p = [torch.concat([ps, c], dim=1) for ps in p]
+
+        compress_p = self.rs_compress(torch.cat(p, dim=1))
+        x, compress_p = self.bi_nlb(x, compress_p) #
+        p = [torch.concat([ps, compress_p, x], dim=1) for ps in p]
+    
         for index, m in enumerate(self.rs4):
             p[index] = m(p[index])
+
+        
         return p
 
 
 class Model(nn.Module):
-    def __init__(self, backbone, dim=32, input_dim=3):
+    def __init__(self, backbone, dim=32, input_dim=3, n=2):
         super(Model, self).__init__()
-        self.n = len(os.listdir('./pseudo_labels'))
+        self.n = n
         list_block = []
         for i in range(self.n):
             list_block.append(Conv2dNormActivation(
@@ -186,7 +300,7 @@ class Model(nn.Module):
         self.first_conv = nn.ModuleList(list_block)
         # 不应该share weights
         self.mode = backbone
-
+        # import pdb; pdb.set_trace()
         if backbone == 'resnet':
             print('resnet backbone')
             self.backbone = ResNetModel(train_enc=True)
@@ -204,16 +318,14 @@ class Model(nn.Module):
             self.backbone = mobile_vit_small()
             weights_dict = torch.load('models/mobilevit_s.pt', map_location='cpu')
             weights_dict = weights_dict["model"] if "model" in weights_dict else weights_dict
-            # 删除有关分类类别的权重
             for k in list(weights_dict.keys()):
                 if "classifier" in k:
                     del weights_dict[k]
             self.backbone.load_state_dict(weights_dict, strict=False)
             self.ub1 = UncertaintyBlock(32, dim, self.n)
             self.ub2 = UncertaintyBlock(64, dim, self.n)
-            self.ub3 = UncertaintyBlock(96, dim, self.n)
-            self.ub4 = UncertaintyBlock(128, dim, self.n)
-            self.ub5 = UncertaintyBlock(160, dim, self.n)
+            self.ub3 = UncertaintyBlock(128, dim, self.n)
+
         elif backbone == 'vgg':
             print('vgg backbone')
             self.backbone = VGGModel(train_enc=True)
@@ -232,6 +344,13 @@ class Model(nn.Module):
             self.ub1 = UncertaintyBlock(96, dim, self.n)
             self.ub2 = UncertaintyBlock(192, dim, self.n)
             self.ub3 = UncertaintyBlock(1056, dim, self.n)
+        elif backbone == 'swinv2b':
+            self.backbone = SwinV2Regression()
+            self.ub1 = UncertaintyBlock(128, dim, self.n)
+            self.ub2 = UncertaintyBlock(256, dim, self.n)
+            self.ub3 = UncertaintyBlock(512, dim, self.n)
+        else:
+            raise NotImplementedError
         list_block = []
         for i in range(self.n):
             list_block.append(nn.Conv2d(dim, 1, kernel_size=1))
@@ -240,55 +359,28 @@ class Model(nn.Module):
         self.upsample2x = nn.UpsamplingBilinear2d(scale_factor=2)
         self.upsample4x = nn.UpsamplingBilinear2d(scale_factor=4)
         self.upsample8x = nn.UpsamplingBilinear2d(scale_factor=8)
+        self.upsample1_75x = nn.UpsamplingBilinear2d(scale_factor=1.75)
+        self.upsample3_5x = nn.UpsamplingBilinear2d(scale_factor=3.5)
+        self.upsample7x = nn.UpsamplingBilinear2d(scale_factor=7)
+        
+        
 
         self.downsample2x = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        # self.apply(self.init_parameters)
 
-        # self.nw_enc = nw.ResnetEncoder(18, False)
-        # loaded_dict_enc = torch.load('models/encoder.pth')
-        # filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in self.nw_enc.state_dict()}
-        # self.nw_enc.load_state_dict(filtered_dict_enc)
-        # for param in self.nw_enc.parameters():
-        #     param.requires_grad = False
-        # self.nw_dec = nw.DepthDecoder(num_ch_enc=self.nw_enc.num_ch_enc, scales=range(4))
-        # loaded_dict = torch.load('models/depth.pth')
-        # self.nw_dec.load_state_dict(loaded_dict)
-        # for param in self.nw_dec.parameters():
-        #     param.requires_grad = False
-
-        # self.activate = nn.Sigmoid()
-
-    # @staticmethod
-    # def init_parameters(m):
-    #     if isinstance(m, nn.Conv2d):
-    #         if m.weight is not None:
-    #             nn.init.kaiming_normal_(m.weight, mode="fan_out")
-    #         if m.bias is not None:
-    #             nn.init.zeros_(m.bias)
-    #     elif isinstance(m, (nn.LayerNorm, nn.BatchNorm2d)):
-    #         if m.weight is not None:
-    #             nn.init.ones_(m.weight)
-    #         if m.bias is not None:
-    #             nn.init.zeros_(m.bias)
-    #     elif isinstance(m, (nn.Linear,)):
-    #         if m.weight is not None:
-    #             nn.init.trunc_normal_(m.weight, mean=0.0, std=0.02)
-    #         if m.bias is not None:
-    #             nn.init.zeros_(m.bias)
-    #     else:
     #         pass
 
     def forward(self, x, p=None):
-        # features = self.nw_enc(x)
-        # outputs = self.nw_dec(features)
-        # disp = outputs[("disp", 0)]
-        # x = x * (disp / disp.max())
 
+        if self.mode == 'swinv2b':
+            x = F.interpolate(x, size=(256, 256), mode='bilinear', align_corners=False)
         y, results = self.backbone(x)
-        self.heatmap = self.process_output(y)
+        
+        if self.mode == 'swinv2b':
+            y = F.interpolate(y, size=(224, 224), mode='bilinear', align_corners=False)
         if p is None:
             return y
+        
 
         e = []
         for index, m in enumerate(self.first_conv):
@@ -313,21 +405,27 @@ class Model(nn.Module):
         elif self.mode == 'densenet':
             results[0] = self.downsample2x(results[0])
             results[2] = self.upsample4x(results[2])
+        elif self.mode == 'swinv2b':
+            results[0] = F.interpolate(results[0], size=(56, 56), mode='bilinear', align_corners=False)
+            results[1] = F.interpolate(results[1], size=(56, 56), mode='bilinear', align_corners=False)
+            results[2] = F.interpolate(results[2], size=(56, 56), mode='bilinear', align_corners=False)
+            
 
-        e = self.ub1(results[0], e)
-        e = self.ub2(results[1], e)
-        e = self.ub3(results[2], e)
-        e = self.ub4(results[3], e)
-        e = self.ub5(results[4], e)
+        if self.mode == 'mobileViT':
+            e = self.ub1(results[0], e)
+            e = self.ub2(results[1], e)
+            e = self.ub3(results[3], e)
+        else:
+            e = self.ub1(results[0], e)
+            e = self.ub2(results[1], e)
+            e = self.ub3(results[2], e)            
 
         e = [self.upsample4x(ps) for ps in e]
         for index, m in enumerate(self.conv):
             e[index] = m(e[index])
         e = [torch.sigmoid(ps) for ps in e]
-        # e = [torch.relu(ps) for ps in e]
-        # p = [ps.split(1, dim=1) for ps in p]
-        # e = [ps[0] for ps in p]
-        # s = [ps[1] for ps in p]
+        
+
 
         return y, e
 
