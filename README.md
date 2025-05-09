@@ -1,45 +1,65 @@
-# dataset preparetion
-the DriverAttention-C can be downloaded at https://drive.google.com/file/d/1W8joMa6blxwNrETF2005cCFViq4DCNvB/view?usp=sharing.
-each dataset's structure is organized as follows:
+# Towards Robust Unsupervised Attention Prediction in Autonomous Driving
+
+This repository is an extension of our ICCV conference paper, **"Unsupervised Self-Driving Attention Prediction via Uncertainty Mining and Knowledge Embedding."**
+
+## Dataset Preparation
+
+The DriverAttention-C dataset can be downloaded from [this link](https://drive.google.com/file/d/1W8joMa6blxwNrETF2005cCFViq4DCNvB/view?usp=sharing).
+
+The dataset is organized as follows:
 ```
 root/
 ├── scene_0/
 │   ├── camera
 │   ├── camera_224_224
-│   └── gaze
-│   └── gaze_224__224
+│   ├── gaze
+│   ├── gaze_224_224
 │   └── gaussian_noise_224_224 
 ├── scene_1/
-├── .....
+├── ...
 ├── scene_n/
 ├── train.txt
 ├── val.txt
 ├── test_cor.txt
 ├── hard_cases_gl2.0.txt
-├── ....
+├── ...
 └── hard_cases_gl4.0.txt
 ```
-the hard_cases_gl*.txt can be found at lt_txts/ folder
+The `hard_cases_gl*.txt` files can be found in the `lt_txts/` folder.
 
-# train corruption robustness
+## Corruption Robustness
+
+**Training:**
 ```bash
 python train_robo_cor.py --name exp_name --data-path path/to/data --topK 8 --mix_dir temp_dir
 ```
 
-
-# eval corruption robustness
+**Evaluation:**
 ```bash
-python test_cor.py --data-path ../atten_data/bd --save_model bd
+python test_cor.py --data-path path/to/data --save_model model_name
 ```
 
+## Central Bias
 
-# train for central bias
+**Training:**
 ```bash
-python train_longtail.py --name rcpreg --data-path ../atten_data/bd --batch-size 4
+python train_longtail.py --name rcpreg --data-path path/to/data --batch-size 4
 ```
 
-
-# test for cental bias
+**Evaluation:**
 ```bash
-python test_longtail.py --data-path /path/to/data --save_model save_weights
+python test_longtail.py --data-path path/to/data --save_model save_weights
+```
+
+## Citing
+
+If our work proves helpful in your research, please acknowledge it by citing the following BibTeX entry:
+
+```bibtex
+@article{qi2025towards,
+  title={Towards Robust Unsupervised Attention Prediction in Autonomous Driving},
+  author={Qi, Mengshi and Bi, Xiaoyang and Zhu, Pengfei and Ma, Huadong},
+  journal={arXiv preprint arXiv:2501.15045},
+  year={2025}
+}
 ```
