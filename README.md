@@ -1,6 +1,6 @@
 # Towards Robust Unsupervised Attention Prediction in Autonomous Driving
 
-This repository is an extension of our ICCV conference paper, **"Unsupervised Self-Driving Attention Prediction via Uncertainty Mining and Knowledge Embedding."**
+This repository is an extension of our ICCV conference paper, **"Unsupervised Self-Driving Attention Prediction via Uncertainty Mining and Knowledge Embedding."** For the original ICCV code, please check out the `iccv` branch.
 
 ## Dataset Preparation
 
