@@ -14,7 +14,10 @@ root/
 │   ├── camera_224_224
 │   ├── gaze
 │   ├── gaze_224_224
-│   └── gaussian_noise_224_224 
+│   ├── gaussian_noise_224_224
+│   ├── ...
+│   ├── fog
+│   └── snow 
 ├── scene_1/
 ├── ...
 ├── scene_n/
