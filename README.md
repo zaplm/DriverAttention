@@ -60,6 +60,9 @@ python test_longtail.py --data-path path/to/data --save_model save_weights
 1. Prepare the data as described in [this repository](https://github.com/Twizwei/bddoia_project).
 2. Use the trained model to infer driver attention.
 3. Train the decision-making model:
+```
+python train_decision.py --name test_ --atten_model {infer_dir} --data-path path/to/data
+```
 
 **Evaluation:**
 Follow the instructions in [the repository](https://github.com/Twizwei/bddoia_project).
