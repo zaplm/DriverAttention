@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 class SceneDataset(Dataset):
     def __init__(self, root: str, mode: str,
-                  alpha: float = 0.3,
+                  beta: float = 0.2,
                   severity:str = None,
                   cam_subdir = 'camera',
                   out_folder = 'infer_gaze',
@@ -41,7 +41,7 @@ class SceneDataset(Dataset):
         self.infer_gaze_subdir = infer_gaze_subdir
         self.gaze_average = None
         self.use_prior = use_prior
-
+        self.beta = beta
 
         assert os.path.exists(root), f"path '{root}' does not exists."
         self.root = Path(root)
@@ -124,7 +124,7 @@ class SceneDataset(Dataset):
             pesudo_path = str(self.root / scene / p_type / file)
             ps = self.convert(pesudo_path)
             if self.use_prior:
-                ps = ps * (mall+1)
+                ps = ps * (mall+self.beta)
             ps /= ps.max()
             p.append(ps)
         return p

@@ -420,3 +420,60 @@ def get_params_groups(model: torch.nn.Module, weight_decay: float = 1e-4):
             params_group[1]["params"].append(param)  # with decay
 
     return params_group
+
+
+
+
+
+# decision-makeing train
+
+
+def label_smoothing(labels, smoothing=0.1):
+    """
+    Apply label smoothing.
+    - labels: one-hot labels (batch_size, num_classes)
+    - smoothing: smoothing factor
+    """
+    num_classes = labels.size(1)
+    smoothed_labels = (1 - smoothing) * labels + (smoothing / num_classes)
+    return smoothed_labels
+
+def one_hot_to_indices(one_hot_labels):
+    """Convert one-hot encoded labels to class indices."""
+    return torch.argmax(one_hot_labels, dim=1)
+
+def train_dec_one_epoch(args, model, optimizer, data_loader, device, epoch, lr_scheduler, print_freq=10, scaler=None):
+    model.train()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    header = 'Epoch: [{}]'.format(epoch)
+    cnt = 0 
+    for img, gaze, action, reason in metric_logger.log_every(data_loader, print_freq, header):
+        # import pdb;  pdb.set_trace()
+        img , gaze, action, reason =  img.to(device), gaze.to(device), action.to(device), reason.to(device)
+
+        action_logits, reason_logits = model(img, gaze)
+        class_weights = [1, 1, 2, 2]
+        w = torch.FloatTensor(class_weights).cuda()
+        action_loss = nn.BCEWithLogitsLoss(pos_weight=w).cuda()
+        reason_loss = nn.BCEWithLogitsLoss().cuda()
+        # loss_func = nn.CrossEntropyLoss()
+        # loss = loss_func(logits, labels)
+        loss_a = action_loss(action_logits, action)
+        loss_r = reason_loss(reason_logits, reason)
+        loss = loss_a + loss_r
+
+        optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(parameters=model.parameters(), max_norm=10)
+        optimizer.step()
+        optimizer.zero_grad()
+
+        
+        lr_scheduler.step()
+        lr = optimizer.param_groups[0]["lr"]
+        metric_logger.update(loss=loss.item(), lr=lr)
+        # cnt += 1
+        # if(cnt >= 200):
+        #     break
+    return metric_logger.meters["loss"].global_avg, metric_logger.meters["lr"].global_avg

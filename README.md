@@ -54,6 +54,17 @@ python train_longtail.py --name rcpreg --data-path path/to/data --batch-size 4
 python test_longtail.py --data-path path/to/data --save_model save_weights
 ```
 
+## Decision-Making
+
+**Training:**
+1. Prepare the data as described in [this repository](https://github.com/Twizwei/bddoia_project).
+2. Use the trained model to infer driver attention.
+3. Train the decision-making model:
+
+**Evaluation:**
+Follow the instructions in [the repository](https://github.com/Twizwei/bddoia_project).
+
+
 ## Citing
 
 If our work proves helpful in your research, please acknowledge it by citing the following BibTeX entry:
