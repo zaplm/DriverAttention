@@ -8,11 +8,12 @@ import cv2
 from pathlib import Path
 import random
 from torch.utils.data import DataLoader
+import torchvision.transforms.functional as F
 
 
 class SceneDatasetLT(Dataset):
     def __init__(self, root: str, mode: str,
-                #   alpha: float = 0.3,
+                  beta: float = 0.3,
                   severity:str = None,
                   cam_subdir = 'camera',
                   out_folder = 'infer_gaze',
@@ -38,8 +39,10 @@ class SceneDatasetLT(Dataset):
         self.noise_type = noise_type
         self.p_dic:list = p_dic
         self.use_msk = True
+        self.beta = beta
         self.infer_gaze_subdir = infer_gaze_subdir
         self.gaze_average = None
+        # self.kl_db:dict = None
 
 
         assert os.path.exists(root), f"path '{root}' does not exists."
@@ -64,9 +67,11 @@ class SceneDatasetLT(Dataset):
             if sample_num > len(self.file_scene_list ):
                 raise ValueError("sample_num is larger than the length of the list")
             self.file_scene_list =  random.sample(self.file_scene_list, sample_num)
+        # self.file_scene_list = self.file_scene_list[:10] #DEBUG
         self.init_file_scene_list = self.file_scene_list
-        
-    def get_weighted_prior(self, scene, file, params):
+        # self.file_scene_list = self.file_scene_list[:1000]
+    def get_weighted_prior(self, scene, file):
+        # ratio_dic = {'car': 0.5638977998074998, 'truck': 0.2269732635665115, 'backpack': 0.21311985196308783, 'pedestrian': 0.20617415598709493, 'traffic light': 0.1850667140787043, 'bus': 0.18421525132774222, 'bicycle': 0.1781600717821623, 'tie': 0.1377069540321827, 'motorcycle': 0.13349173879026038, 'handbag': 0.13124596281810588, 'horse': 0.12889326948465574, 'stop sign': 0.12483922368060399, 'dog': 0.10880823520404335, 'boat': 0.10577008263850264, 'snowboard': 0.0892871841788292, 'umbrella': 0.08660523378730556, 'oven': 0.08596869930624962, 'tennis racket': 0.08570528030395508, 'bed': 0.08233067393302917, 'cow': 0.08198763278778642, 'cell phone': 0.07620838226284832, 'kite': 0.0735354639408696, 'baseball bat': 0.0718070297235889, 'suitcase': 0.06551188474555535, 'sports ball': 0.06154689057816372, 'skateboard': 0.06127312399698176, 'banana': 0.060324782971292734, 'fire hydrant': 0.058528549239196134, 'bench': 0.05475237408741351, 'parking meter': 0.05449956074685377, 'elephant': 0.05362171326608708, 'chair': 0.047383366278760754, 'bird': 0.0424957452650365, 'refrigerator': 0.037612475291825834, 'train': 0.03581248259029558, 'surfboard': 0.03540474381297827, 'bottle': 0.03334296714073341, 'potted plant': 0.031974993769836146, 'knife': 0.031571838958188894, 'clock': 0.02853374809737116, 'tv': 0.025223881820224166, 'dining table': 0.024262551218271255, 'bowl': 0.023461395194754004, 'sheep': 0.017924360930919647, 'vase': 0.017169343191199005, 'airplane': 0.015998620631993372, 'broccoli': 0.01333126937970519, 'cup': 0.01049697454760058, 'frisbee': 0.010140785947442055, 'cat': 0.005902743432670832, 'microwave': 0.005191194824874401, 'book': 0.0036249628756195307, 'keyboard': 0.0034132998043787666, 'mouse': 0.003137772936107857, 'toilet': 0.0027635309379547834, 'sink': 0.0025732512502664967, 'fork': 0.0020925351418554783}
         if 'bd' in self.root.name:
             ratio_dic = {'car': 0.0, 'person': 0.18122506607338648, 'stop sign': 0.19527073080923388, 'traffic light': 0.2616087945898801, 'truck': 0.17388554465132544, 'bicycle': 0.16350374183093028, 'bus': 0.16153357425939865, 'motorcycle': 0.19183225919958863, 'bench': 0.10643748839719337, 'dog': 0.05576605004173327, 'backpack': 0.09777960469388935, 'fire hydrant': 0.06474239858484047, 'handbag': 0.08763731467521027, 'parking meter': 0.16562452863722288, 'potted plant': 0.06092319412051039, 'cup': 0.11359222911416274, 'skateboard': 0.09840303970349075, 'train': 0.20691480532578713, 'tv': 0.10791136824738431, 'clock': 0.1144762219590874, 'cell phone': 0.13222140138030689, 'umbrella': 0.11024437257081295, 'bird': 0.08634613909001014, 'boat': 0.18348954395743725, 'kite': 0.03687248143775576, 'suitcase': 0.09635855838609045, 'bowl': 0.0666870674151306, 'chair': 0.05954423152044212, 'frisbee': 0.084945172864205, 'cow': 0.06745842585058782, 'airplane': 0.12468087536177429, 'horse': 0.03908503110024358, 'sink': 0.06261205817910573, 'surfboard': 0.10702988498317394, 'keyboard': 0.0785430556265317, 'mouse': 0.024297037773953804, 'sports ball': 0.14885588348762518, 'elephant': 0.05967972605245516, 'tennis racket': 0.0650258207044329, 'banana': 0.10106796738261853, 'baseball bat': 0.017516029519683153, 'bottle': 0.07283924099191112, 'broccoli': 0.0, 'book': 0.03529503115137245, 'toilet': 0.07208270054966644, 'fork': 0.11649917077285467, 'vase': 0.04720483379038387, 'knife': 0.0703967826049966, 'refrigerator': 0.026514250192185052, 'cat': 0.0, 'microwave': 0.07097810306040395, 'tie': 0.0603520078010561, 'oven': 0.008240488923692621, 'snowboard': 0.11479120579603207, 'bed': 0.03127203895436038, 'dining table': 0.02025312469653382, 'sheep': 0.03619519410151036}
         elif 'da' in self.root.name:
@@ -75,33 +80,36 @@ class SceneDatasetLT(Dataset):
             ratio_dic =  {'car': 0.0, 'clock': 0.13874513031120167, 'boat': 0.20652611439770596, 'traffic light': 0.2793526645914734, 'bird': 0.10541088235025943, 'kite': 0.045358775949868285, 'stop sign': 0.22347788085993686, 'chair': 0.07118423588463459, 'potted plant': 0.06802263254782581, 'truck': 0.15994634319161627, 'bench': 0.11375420618380495, 'cow': 0.07249573723082534, 'airplane': 0.1211525517500804, 'fire hydrant': 0.05416122215627682, 'bicycle': 0.18245995512470684, 'elephant': 0.0461137727741646, 'motorcycle': 0.2096034153552822, 'sheep': 0.03565109520714902, 'bus': 0.16418370685195002, 'train': 0.2313256216859091, 'frisbee': 0.07673088929327292, 'parking meter': 0.1864185431551573, 'sports ball': 0.14194220511623945, 'bottle': 0.04766875180409624, 'umbrella': 0.13314599797437493, 'cup': 0.10515788980993983, 'tv': 0.11796118643341778, 'sink': 0.06192111547981831, 'handbag': 0.06985666858240488, 'suitcase': 0.09288495126253844, 'backpack': 0.09818299954661222, 'skateboard': 0.12107334614490044, 'bowl': 0.07436673974567512, 'baseball bat': 0.022066766514106866, 'mouse': 0.02483641627480934, 'spoon': 0.07930684138540264, 'horse': 0.06003471531785409, 'teddy bear': 0.0, 'baseball glove': 0.05209084968095902, 'tennis racket': 0.08052118189120355, 'oven': 0.009157972665070149, 'banana': 0.12876066123707858, 'knife': 0.08658758337612164, 'vase': 0.044078110698021034, 'laptop': 0.018785659422779277, 'wine glass': 0.10568526398700703, 'dog': 0.07832242288218738, 'surfboard': 0.1282058543001177, 'toilet': 0.08408924168640101, 'refrigerator': 0.03284695736976345, 'bed': 0.038786309394509284, 'book': 0.04132156427101365, 'fork': 0.13774055302277896, 'person': 0.1954076988613516}
  
 
-        mall = torch.zeros(1, 224, 224)
-        mall_c = torch.zeros(1, 224, 224)
+        mall = torch.zeros(1, 896, 896)
         masks_dir=self.root / scene / 'masks_stat' / file
         masks_path = sorted(
                     list((masks_dir).glob('*')))
-
+        
+        # import pdb; pdb.set_trace()
         for msk_p in masks_path:
             category = msk_p.stem.split('_')[0]  
-            [msk, msk_c] = self.convert(msk_p, params)
+            msk = self.get_large_imgl(msk_p)
             index = ratio_dic[category] if category in ratio_dic else 0
             mall = mall + msk * index
-            mall_c = mall_c + msk_c * index
 
-        return mall, mall_c
+        return mall
     
     def get_pseudos(self, scene, file, params):
+        i, j, h, w = params
         p = []
         p_c = []
+        # import pdb; pdb.set_trace()
         if self.use_prior:
-            [mall, mall_c] = self.get_weighted_prior(scene, file, params)
+            mall = self.get_weighted_prior(scene, file)
                 
+        
         for p_type in self.p_dic:
             pesudo_path = str(self.root / scene / p_type / file)
-            [ps, ps_c] = self.convert(pesudo_path, params)
+            ps = self.get_large_imgl(pesudo_path)
             if self.use_prior:
-                ps = ps * (mall+1)
-                ps_c = ps_c * (mall_c + 1)
+                ps = ps * (mall+self.beta)
+                ps_c = transforms.functional.crop(ps, i, j, h, w)
+            ps = F.resize(ps, [224, 224])
             ps /= ps.max()
             ps_c /= ps_c.max()
             
@@ -112,7 +120,6 @@ class SceneDatasetLT(Dataset):
     
     def change_mode(self, mode):
         self.mode = mode
-        
     def __getitem__(self, i):
         file, scene = self.file_scene_list[i]
         if self.noise_type:
@@ -138,6 +145,8 @@ class SceneDatasetLT(Dataset):
                     break
             gaze  = self.convert_init(gaze_path)
             return img, gaze
+        
+
         else: 
             raise(NotImplementedError)
         
@@ -177,7 +186,22 @@ class SceneDatasetLT(Dataset):
             x = torch.FloatTensor(x).unsqueeze(0)
 
         return x
-    
+    @staticmethod
+    def get_large_imgl(x_path):
+
+        # Load the image
+        x = Image.open(x_path)
+        
+        x = x.convert('L')
+        x = np.array(x, dtype=np.float32)   
+
+        x_large = cv2.resize(x, (896, 896))  # Resize to larger dimensions
+        if np.max(x_large) > 1.0:
+            x_large /= 255.0
+        x_large = torch.FloatTensor(x_large).unsqueeze(0)  # Add channel dimension
+
+        return x_large
+        
     @staticmethod
     def convert(x_path, params, is_rgb=False):
         # For RGB images
@@ -255,4 +279,3 @@ def kldiv(s_map, gt):
     result = gt * torch.log(eps + gt / (s_map + eps))
     # print(torch.log(eps + gt/(s_map + eps))   )
     return torch.mean(torch.sum(result, 1))
-

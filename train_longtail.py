@@ -194,6 +194,7 @@ def parse_args():
                     help="Use wandb to record")
     parser.add_argument('--p_dic', default=['ml_p', 'unisal_p'], nargs='+', help='A list of pseudoss')
     parser.add_argument('--prior', nargs='+', help='A list of pseudoss')
+    parser.add_argument('--beta', default=0.2, type=float, help="if beta=-1, without mask")
 
     
     args = parser.parse_args()
@@ -247,7 +248,7 @@ def main(args):
     print(args.data_path)
 
     val_dataset = SceneDataset(args.data_path, mode='val')
-    train_dataset = SceneDatasetLT(args.data_path, mode='train', p_dic = args.p_dic)
+    train_dataset = SceneDatasetLT(args.data_path, mode='train', p_dic = args.p_dic, beta=args.beta)
     num_workers = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])
     train_data_loader = data.DataLoader(train_dataset,
                                 batch_size=batch_size,

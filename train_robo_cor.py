@@ -179,7 +179,7 @@ def parse_args():
                         help='start epoch')
     parser.add_argument('--model', default='uncertainty-m', help="uncertainty-r/-c/-m, resnet, ConvNext")
     parser.add_argument('--input_channel', default=1, type=int)
-    parser.add_argument('--alpha', default=0.3, type=float, help="if alpha=-1, without mask")
+    # parser.add_argument('--alpha', default=0.3, type=float, help="if alpha=-1, without mask")
     parser.add_argument('--project_name', default='prj', help="wandb project name")
     parser.add_argument('--name', default='', help="save_name")
     parser.add_argument('--loss_func', default='kld', help='bce/ce')
@@ -190,6 +190,7 @@ def parse_args():
     parser.add_argument("--use_wandb", action='store_true',
                     help="Use wandb to record")
     parser.add_argument('--p_dic', default=['ml_p', 'unisal_p'], nargs='+', help='A list of pseudoss')
+    parser.add_argument('--beta', default=0.2, type=float, help="if beta=-1, without mask")
     
     
     #==================for aug strategy===============================
@@ -258,7 +259,7 @@ def main(args):
 
     start_time = time.time()
     mix_train_dataset = None
-    init_train_dataset = SceneDataset(args.data_path, mode='train', p_dic = args.p_dic, infer_gaze_subdir=args.mix_dir)
+    init_train_dataset = SceneDataset(args.data_path, mode='train', p_dic = args.p_dic, infer_gaze_subdir=args.mix_dir, beta=args.beta)
     
 
     start_time = time.time()
